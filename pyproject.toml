@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "audiojev-inference"
+version = "0.1.0"
+description = "Local typed audio decisions with trained AudioJev checkpoints"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=2,<3", "scipy>=1.15,<2", "soundfile>=0.13,<1",
+  "torch>=2.8,<2.9", "transformers==4.57.6", "accelerate>=1.10,<2",
+  "safetensors>=0.6,<1", "peft>=0.17,<0.18",
+]
+
+[project.optional-dependencies]
+server = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
+
+[project.scripts]
+audiojev-serve = "audiojev_inference.server:main"
+
+[tool.setuptools.packages.find]
+include = ["audiojev_inference*"]
