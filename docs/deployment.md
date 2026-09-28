@@ -1,77 +1,79 @@
-# 部署
+# Deployment
 
-## 启动与配置
+**English** | [简体中文](deployment.zh-CN.md) · [Home](../README.md)
+
+## Startup and configuration
 
 ```bash
 audiojev-serve --device cuda:0 --host 127.0.0.1 --port 8000
 ```
 
-默认模型为 [shlv/AudioJev](https://huggingface.co/shlv/AudioJev)。首次启动自动下载，加载完成后提供 HTTP 服务。
+The default model is [shlv/AudioJev](https://huggingface.co/shlv/AudioJev). The first startup downloads it automatically. The HTTP service becomes available after the model has loaded.
 
-| 参数 | 默认值 | 用途 |
+| Argument | Default | Purpose |
 |---|---|---|
-| `--model` | `shlv/AudioJev` | Hugging Face 模型 ID 或本地目录 |
-| `--revision` | `main` | 固定模型分支、标签或完整提交 SHA |
-| `--local-files-only` | 关闭 | 仅使用本地文件或已缓存的模型 |
-| `--device` | `cuda:0` | 指定 GPU |
-| `--host` | `127.0.0.1` | 监听地址 |
-| `--port` | `8000` | 监听端口 |
+| `--model` | `shlv/AudioJev` | Hugging Face model ID or local directory |
+| `--revision` | `main` | Pin a model branch, tag, or full commit SHA |
+| `--local-files-only` | Off | Use only local files or an already cached model |
+| `--device` | `cuda:0` | Select a GPU |
+| `--host` | `127.0.0.1` | Listening address |
+| `--port` | `8000` | Listening port |
 
-`--model-dir` 与 `--model` 等价。也可通过环境变量配置默认值：
+`--model-dir` is equivalent to `--model`. You can also configure defaults through environment variables:
 
-| 变量 | 用途 |
+| Variable | Purpose |
 |---|---|
-| `AUDIOJEV_MODEL` | 模型 ID 或本地目录 |
-| `AUDIOJEV_DEVICE` | GPU 设备 |
-| `HF_HOME` | Hugging Face 模型缓存目录 |
+| `AUDIOJEV_MODEL` | Model ID or local directory |
+| `AUDIOJEV_DEVICE` | GPU device |
+| `HF_HOME` | Hugging Face model cache directory |
 
-命令行参数优先于环境变量。完整参数可通过 `audiojev-serve --help` 查看。
+Command-line arguments take precedence over environment variables. Run `audiojev-serve --help` for the full argument list.
 
-## 预先下载与离线运行
+## Download in advance and run offline
 
-需要将权重放在指定目录时：
+To store the weights in a specific directory:
 
 ```bash
 hf download shlv/AudioJev --local-dir ./models/AudioJev
 audiojev-serve --model ./models/AudioJev --local-files-only --device cuda:0
 ```
 
-`--local-files-only` 也可以配合模型 ID 使用，此时从 Hugging Face 缓存加载已经下载的版本。使用 `--revision` 可固定部署版本。
+You can also use `--local-files-only` with a model ID to load a previously downloaded version from the Hugging Face cache. Use `--revision` to pin the deployed version.
 
-## 资源需求
+## Resource requirements
 
-运行环境为 Python 3.10+、PyTorch 2.8、Transformers 4.57.6，以及支持 BF16 的 NVIDIA CUDA GPU。
+The runtime uses Python 3.10+, PyTorch 2.8, Transformers 4.57.6, and an NVIDIA CUDA GPU with BF16 support.
 
-| 资源 | 用量 |
+| Resource | Usage |
 |---|---|
-| 模型文件 | 约 18.8 GB 磁盘空间 |
-| BF16 模型参数 | 约 9.4 GB 显存 |
-| 推理工作空间 | 额外显存，随音频和问题长度变化 |
+| Model files | Approximately 18.8 GB of disk space |
+| BF16 model parameters | Approximately 9.4 GB of GPU memory |
+| Inference workspace | Additional GPU memory, depending on audio and question length |
 
-模型在进程启动时加载并保持驻留。推理使用 BF16 和 SDPA。
+The model is loaded at process startup and remains resident in memory. Inference uses BF16 and SDPA.
 
-## 多问题与多 GPU
+## Multiple questions and GPUs
 
-一次 `system_one` 请求可以包含多个问题。音频只编码一次，各问题分别进行决策；将同一音频的问题放入一个请求可减少重复计算。
+A `system_one` request can contain multiple questions. The audio is encoded once, and each question is evaluated separately. Grouping questions about the same audio into one request reduces repeated computation.
 
-每个服务进程使用一个 GPU，请求在进程内串行执行。多 GPU 部署可为各设备启动独立服务：
+Each server process uses one GPU and handles requests serially. For multiple GPUs, start a separate server for each device:
 
 ```bash
 audiojev-serve --device cuda:0 --port 8000
 audiojev-serve --device cuda:1 --port 8001
 ```
 
-上述命令分别运行于不同终端或进程管理器中，客户端通过端口选择服务，也可由负载均衡器分配请求。
+Run these commands in separate terminals or through a process manager. Clients can select a server by port, or a load balancer can distribute requests.
 
-## 服务状态
+## Service status
 
-`GET /health` 在模型加载完成后返回状态；`/docs` 提供交互式接口文档。
+`GET /health` returns the service status once the model has loaded. Interactive API documentation is available at `/docs`.
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-## 性能测量
+## Performance measurement
 
 ```bash
 python examples/benchmark.py \
@@ -80,4 +82,4 @@ python examples/benchmark.py \
   --repeats 3
 ```
 
-输出同一音频多问题请求与逐问题调用的延迟中位数，以及音频编码次数。可使用 `--model` 和 `--device` 指定模型与 GPU。
+The output compares median latency for a single request containing multiple questions with separate requests for each question, and reports audio encoder call counts. Use `--model` and `--device` to select a model and GPU.

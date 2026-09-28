@@ -1,36 +1,38 @@
 # AudioJev-Inference
 
-AudioJev 的 Python 推理库与 HTTP 服务。输入一段音频和自然语言问题，即可获得候选答案的概率、真假判断或等级评分。同一音频可以一次回答多个问题。
+**English** | [简体中文](README.zh-CN.md)
 
-模型：[shlv/AudioJev](https://huggingface.co/shlv/AudioJev) · [API 文档](docs/api.md) · [部署说明](docs/deployment.md)
+A Python inference library and HTTP service for AudioJev. Provide an audio clip and natural-language questions to get candidate probabilities, yes/no judgments, or ordinal scores. A single request can ask multiple questions about the same audio.
 
-## 安装
+Model: [shlv/AudioJev](https://huggingface.co/shlv/AudioJev) · [API reference](docs/api.md) · [Deployment guide](docs/deployment.md)
 
-需要 Python 3.10+ 和支持 BF16 的 NVIDIA CUDA GPU。在项目目录安装：
+## Installation
+
+Requires Python 3.10+ and an NVIDIA CUDA GPU with BF16 support. Install from the project directory:
 
 ```bash
 python -m pip install '.[server]'
 ```
 
-仅使用 Python API 时，安装 `python -m pip install .` 即可。依赖版本由 `pyproject.toml` 管理。
+For the Python API alone, install with `python -m pip install .`. Dependency versions are defined in `pyproject.toml`.
 
-## 启动服务
+## Start the server
 
 ```bash
 audiojev-serve --device cuda:0
 ```
 
-默认使用 `shlv/AudioJev`。首次启动会自动下载模型，后续启动复用本地缓存。
+The default model is `shlv/AudioJev`. The first startup downloads the model automatically; subsequent startups reuse the local cache.
 
-服务地址为 `http://127.0.0.1:8000`，交互式 API 文档位于 [/docs](http://127.0.0.1:8000/docs)。检查服务状态：
+The service runs at `http://127.0.0.1:8000`, with interactive API documentation at [/docs](http://127.0.0.1:8000/docs). Check its status:
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-## 发送音频请求
+## Send an audio request
 
-将 `example.wav` 替换为你的音频文件：
+Replace `example.wav` with your audio file:
 
 ```bash
 python examples/http_client.py \
@@ -39,7 +41,7 @@ python examples/http_client.py \
   --options "A dog barking" "A car horn" "Rain falling"
 ```
 
-客户端读取音频并调用 `POST /v1/systemone`，返回所选答案及各候选的概率。客户端只需 Python 标准库，可通过 `--url` 指定服务地址。
+The client reads the audio and calls `POST /v1/systemone`, returning the selected answer and each candidate's probability. It uses only the Python standard library. Set `--url` to connect to a different server address.
 
 ## Python API
 
@@ -64,17 +66,17 @@ result = model.system_one(
 print(result["answers"])
 ```
 
-`state` 接受音频路径、文件字节或 `AudioInput` 波形。结果按问题 ID 返回；同一请求中的多个问题共享音频编码。
+`state` accepts an audio path, encoded file bytes, or an `AudioInput` waveform. Results are keyed by question ID. Questions in the same request share one audio encoding.
 
-| 类型 | 输入 | 输出 |
+| Type | Input | Output |
 |---|---|---|
-| `Choice` | 问题与候选描述 | 所选候选、概率分布 |
-| `Noul` | 待判断的命题 | 命题为真的概率 |
-| `Score` | 问题与有序等级描述 | 期望等级、概率分布（实验性接口） |
+| `Choice` | A question and candidate descriptions | Selected candidate and probability distribution |
+| `Noul` | A statement to evaluate | Probability that the statement is true |
+| `Score` | A question and ordered level descriptions | Expected level and probability distribution (experimental) |
 
-候选 key、概率字段和输入限制见 [API 文档](docs/api.md)。
+See the [API reference](docs/api.md) for candidate keys, probability fields, and input limits.
 
-也可以直接运行本地推理示例：
+You can also run the local inference example directly:
 
 ```bash
 python examples/predict.py \
@@ -83,15 +85,15 @@ python examples/predict.py \
   --options "A dog barking" "A car horn" "Rain falling"
 ```
 
-## 部署与开发
+## Deployment and development
 
-本地模型、离线运行、GPU 配置和性能测量见 [部署说明](docs/deployment.md)。
+See the [deployment guide](docs/deployment.md) for local models, offline operation, GPU configuration, and performance measurement.
 
-开发环境安装与测试：
+Install the development dependencies and run the tests:
 
 ```bash
 python -m pip install -e '.[server,dev]'
 python -m pytest
 ```
 
-模型使用条款见 [Qwen Research License](https://huggingface.co/shlv/AudioJev/blob/main/LICENSE)。
+Model use is governed by the [Qwen Research License](https://huggingface.co/shlv/AudioJev/blob/main/LICENSE).
