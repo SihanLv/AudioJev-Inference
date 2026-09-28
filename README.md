@@ -1,123 +1,97 @@
 # AudioJev-Inference
 
-AudioJev 的独立 Python 推理库与 HTTP 服务。输入音频和问题，返回候选概率、二元判断或等级评分；同一音频的多个问题共享一次音频编码。
+AudioJev 的 Python 推理库与 HTTP 服务。输入一段音频和自然语言问题，即可获得候选答案的概率、真假判断或等级评分。同一音频可以一次回答多个问题。
 
-默认加载 Hugging Face 上的 **[shlv/AudioJev](https://huggingface.co/shlv/AudioJev)**（RD-SKL，λ=0.5，seed=20261001）。模型权重由 Hugging Face 管理，本项目包含服务代码、客户端示例和测试，可单独克隆、安装和部署。
+模型：[shlv/AudioJev](https://huggingface.co/shlv/AudioJev) · [API 文档](docs/api.md) · [部署说明](docs/deployment.md)
 
 ## 安装
 
-需要 Python 3.10+ 和支持 BF16 的 NVIDIA CUDA GPU。以下命令均在 **AudioJev-Inference 仓库根目录**执行：
+需要 Python 3.10+ 和支持 BF16 的 NVIDIA CUDA GPU。在项目目录安装：
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e ".[server]"
+python -m pip install '.[server]'
 ```
 
-项目使用 PyTorch 2.8、Transformers 4.57.6 和 SDPA。请使用与本机 CUDA 环境匹配的 PyTorch 构建。访问私有模型时，先登录有读取权限的 Hugging Face 账户：
-
-```bash
-export HF_ENDPOINT=https://huggingface.co
-hf auth login
-```
-
-服务会自动下载并缓存模型。也可以先下载到本地：
-
-```bash
-hf download shlv/AudioJev --local-dir ./models/AudioJev
-```
-
-`models/` 已加入 `.gitignore`。原始 FP32 权重约 18.8 GB，加载时转换为 BF16。
+仅使用 Python API 时，安装 `python -m pip install .` 即可。依赖版本由 `pyproject.toml` 管理。
 
 ## 启动服务
 
 ```bash
-audiojev-serve --model shlv/AudioJev --device cuda:0
+audiojev-serve --device cuda:0
 ```
 
-默认地址为 `http://127.0.0.1:8000`。模型加载完成后，可以检查状态或打开交互式 API 文档：
+默认使用 `shlv/AudioJev`。首次启动会自动下载模型，后续启动复用本地缓存。
+
+服务地址为 `http://127.0.0.1:8000`，交互式 API 文档位于 [/docs](http://127.0.0.1:8000/docs)。检查服务状态：
 
 ```bash
 curl http://127.0.0.1:8000/health
-# 浏览器打开 http://127.0.0.1:8000/docs
 ```
 
-从本地模型目录离线启动：
+## 发送音频请求
+
+将 `example.wav` 替换为你的音频文件：
 
 ```bash
-audiojev-serve --model ./models/AudioJev --local-files-only --device cuda:0
+python examples/http_client.py \
+  --audio ./example.wav \
+  --question "Which sound is audible?" \
+  --options "A dog barking" "A car horn" "Rain falling"
 ```
 
-`--model-dir` 是 `--model` 的兼容别名。也可通过 `AUDIOJEV_MODEL` 或 `AUDIOJEV_MODEL_DIR` 指定模型，使用 `--revision` 固定 Hugging Face 提交或标签。更多设置见 [部署说明](docs/deployment.md)。
-
-## 调用 HTTP 接口
-
-服务提供 `POST /v1/systemone`，接收 base64 音频和问题。附带客户端可以直接读取音频文件发送请求：
-
-```bash
-python examples/http_client.py --audio ./example.wav --question "Which sound is audible?" --options "A dog barking" "A car horn" "Rain falling"
-```
-
-客户端仅使用 Python 标准库，不加载模型，也不需要 GPU。请求格式和响应字段见 [API 文档](docs/api.md)。
+客户端读取音频并调用 `POST /v1/systemone`，返回所选答案及各候选的概率。客户端只需 Python 标准库，可通过 `--url` 指定服务地址。
 
 ## Python API
 
 ```python
 from audiojev_inference import AudioJev, Choice, Noul
 
-model = AudioJev("shlv/AudioJev", device="cuda:0")
+model = AudioJev(device="cuda:0")
 result = model.system_one(
     state="./example.wav",
     questions={
         "sound": Choice(
             instructions="Which sound is audible?",
-            criteria={"dog": "A dog barking", "horn": "A car horn", "rain": "Rain falling"},
+            criteria={
+                "dog": "A dog barking",
+                "horn": "A car horn",
+                "rain": "Rain falling",
+            },
         ),
         "speech": Noul(instructions="Can speech be heard in this clip?"),
     },
 )
 print(result["answers"])
-print(result["usage"]["audio_encoder_calls"])  # 同一请求的多个问题共享一次音频编码
 ```
 
-`AudioJev()` 默认使用 `shlv/AudioJev`；传入本地目录可加载已下载的权重。调用方可以传文件路径、音频字节或 `AudioInput` 波形。音频统一转换为 16 kHz 单声道。
+`state` 接受音频路径、文件字节或 `AudioInput` 波形。结果按问题 ID 返回；同一请求中的多个问题共享音频编码。
 
-命令行单次推理示例：
+| 类型 | 输入 | 输出 |
+|---|---|---|
+| `Choice` | 问题与候选描述 | 所选候选、概率分布 |
+| `Noul` | 待判断的命题 | 命题为真的概率 |
+| `Score` | 问题与有序等级描述 | 期望等级、概率分布（实验性接口） |
+
+候选 key、概率字段和输入限制见 [API 文档](docs/api.md)。
+
+也可以直接运行本地推理示例：
 
 ```bash
-python examples/predict.py --audio ./example.wav --question "Which sound is audible?" --options "A dog barking" "A car horn" "Rain falling"
+python examples/predict.py \
+  --audio ./example.wav \
+  --question "Which sound is audible?" \
+  --options "A dog barking" "A car horn" "Rain falling"
 ```
 
-## 概率与候选顺序
+## 部署与开发
 
-- `Choice` 支持 2–36 个候选，返回候选 key、完整概率分布和 `confidence`。
-- `Noul` 返回命题为真的概率。
-- `Score` 支持 2–10 个有序等级，返回期望等级与分布；该接口目前为实验性功能。
-- `confidence = 1 - H(p)/log(K)` 表示分布集中程度，不是预测正确率。
-- `Choice` 和 `Noul` 对唯一、无位置指涉的描述按 UTF-8 字节排序，并把结果映射回原始 key；重复或位置指涉描述保留输入顺序。`Score` 始终保留等级顺序。这是服务的序列化约定，与模型卡中原始候选顺序的评测设置不同。
+本地模型、离线运行、GPU 配置和性能测量见 [部署说明](docs/deployment.md)。
 
-所有概率只在给定候选上归一化。需要兜底答案时，在候选列表中显式提供。接口细节见 [API 文档](docs/api.md)。
-
-## 项目结构
-
-```text
-AudioJev-Inference/
-├── audiojev_inference/   # Python API、模型加载与 HTTP 服务
-├── examples/            # 本地推理、HTTP 客户端、性能测量
-├── docs/                # API 与部署文档
-├── tests/               # 无 GPU 的单元测试
-├── pyproject.toml       # 安装依赖与 audiojev-serve 命令
-└── README.md
-```
-
-## 开发与测量
+开发环境安装与测试：
 
 ```bash
-python -m pip install -e ".[server,dev]"
+python -m pip install -e '.[server,dev]'
 python -m pytest
-python examples/benchmark.py --audio ./example.wav --questions 4
 ```
 
-单元测试不下载权重，也不需要 GPU；性能测量需要模型和 GPU。
-
-模型的使用条件见 [AudioJev 模型卡](https://huggingface.co/shlv/AudioJev)及其 Qwen Research License。项目采用 `state`、`questions`、`answers` 的类型化接口，计算在本地完成。
+模型使用条款见 [Qwen Research License](https://huggingface.co/shlv/AudioJev/blob/main/LICENSE)。

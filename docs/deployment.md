@@ -1,51 +1,83 @@
 # 部署
 
-## 服务进程
-
-从项目根目录安装 `python -m pip install -e '.[server]'` 后：
+## 启动与配置
 
 ```bash
-audiojev-serve --model shlv/AudioJev --device cuda:0 --host 127.0.0.1 --port 8000
+audiojev-serve --device cuda:0 --host 127.0.0.1 --port 8000
 ```
 
-模型在进程启动时加载，启动完成后保持驻留。加载使用 BF16、SDPA，关闭语音输出；服务只读取决策位置的候选 logits。
+默认模型为 [shlv/AudioJev](https://huggingface.co/shlv/AudioJev)。首次启动自动下载，加载完成后提供 HTTP 服务。
 
-| 参数 | 默认值 / 用途 |
+| 参数 | 默认值 | 用途 |
+|---|---|---|
+| `--model` | `shlv/AudioJev` | Hugging Face 模型 ID 或本地目录 |
+| `--revision` | `main` | 固定模型分支、标签或完整提交 SHA |
+| `--local-files-only` | 关闭 | 仅使用本地文件或已缓存的模型 |
+| `--device` | `cuda:0` | 指定 GPU |
+| `--host` | `127.0.0.1` | 监听地址 |
+| `--port` | `8000` | 监听端口 |
+
+`--model-dir` 与 `--model` 等价。也可通过环境变量配置默认值：
+
+| 变量 | 用途 |
 |---|---|
-| `--model` / `--model-dir` | `shlv/AudioJev`；也接受本地目录 |
-| `--revision` | Hub 分支、标签或完整提交 SHA |
-| `--local-files-only` | 只使用已下载的本地模型或缓存 |
-| `--device` | `cuda:0` |
-| `--host` | `127.0.0.1` |
-| `--port` | `8000` |
-| `--adapter` | 可选本地 LoRA adapter |
-| `--merge-adapter` | 将指定 adapter 合并到内存中的模型 |
+| `AUDIOJEV_MODEL` | 模型 ID 或本地目录 |
+| `AUDIOJEV_DEVICE` | GPU 设备 |
+| `HF_HOME` | Hugging Face 模型缓存目录 |
 
-`AUDIOJEV_MODEL` 可设置默认模型，兼容旧变量 `AUDIOJEV_MODEL_DIR`。设备和 adapter 可分别通过 `AUDIOJEV_DEVICE`、`AUDIOJEV_ADAPTER` 设置。显式命令行参数优先。
+命令行参数优先于环境变量。完整参数可通过 `audiojev-serve --help` 查看。
 
-## 下载与离线运行
+## 预先下载与离线运行
 
-私有仓库需要有读取权限的账户，可通过 `hf auth login` 登录，或由部署环境注入 `HF_TOKEN`。凭据不应写入项目配置或 Git。
+需要将权重放在指定目录时：
 
 ```bash
 hf download shlv/AudioJev --local-dir ./models/AudioJev
 audiojev-serve --model ./models/AudioJev --local-files-only --device cuda:0
 ```
 
-直接传 Hub ID 时，服务仅下载权重及 tokenizer/processor 配置到 Hugging Face 缓存。`HF_HOME` 可配置缓存位置；`HF_ENDPOINT` 遵循 Hugging Face 客户端设置。访问私有模型时应使用官方 endpoint，避免镜像无法读取私有仓库的问题。
+`--local-files-only` 也可以配合模型 ID 使用，此时从 Hugging Face 缓存加载已经下载的版本。使用 `--revision` 可固定部署版本。
 
-## 并发与资源
+## 资源需求
 
-一个进程使用一个 GPU worker，请求在模型内部串行化。同一请求的多个问题共享音频编码，音频缓存只在该请求内有效。多个 GPU 可启动多个独立进程，再由外部代理分配请求。
+运行环境为 Python 3.10+、PyTorch 2.8、Transformers 4.57.6，以及支持 BF16 的 NVIDIA CUDA GPU。
 
-原始 FP32 权重下载约占 18.8 GB，BF16 参数约占 9.4 GB 显存，运行时还需为音频特征、激活和 CUDA 分配额外显存。实际峰值随输入长度变化。
+| 资源 | 用量 |
+|---|---|
+| 模型文件 | 约 18.8 GB 磁盘空间 |
+| BF16 模型参数 | 约 9.4 GB 显存 |
+| 推理工作空间 | 额外显存，随音频和问题长度变化 |
 
-默认仅监听本机地址。需要对外提供服务时，可在前面配置带认证的反向代理；应用本身没有认证层。外部存活探针可请求 `/health`，但它不执行完整推理。
+模型在进程启动时加载并保持驻留。推理使用 BF16 和 SDPA。
 
-## 测量音频编码复用
+## 多问题与多 GPU
+
+一次 `system_one` 请求可以包含多个问题。音频只编码一次，各问题分别进行决策；将同一音频的问题放入一个请求可减少重复计算。
+
+每个服务进程使用一个 GPU，请求在进程内串行执行。多 GPU 部署可为各设备启动独立服务：
 
 ```bash
-python examples/benchmark.py --model ./models/AudioJev --audio ./example.wav --questions 4 --repeats 3
+audiojev-serve --device cuda:0 --port 8000
+audiojev-serve --device cuda:1 --port 8001
 ```
 
-输出同一音频多问题请求与分开调用的延迟中位数，以及实际音频编码次数。
+上述命令分别运行于不同终端或进程管理器中，客户端通过端口选择服务，也可由负载均衡器分配请求。
+
+## 服务状态
+
+`GET /health` 在模型加载完成后返回状态；`/docs` 提供交互式接口文档。
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+## 性能测量
+
+```bash
+python examples/benchmark.py \
+  --audio ./example.wav \
+  --questions 4 \
+  --repeats 3
+```
+
+输出同一音频多问题请求与逐问题调用的延迟中位数，以及音频编码次数。可使用 `--model` 和 `--device` 指定模型与 GPU。
