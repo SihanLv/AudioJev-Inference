@@ -5,12 +5,14 @@ import json
 import statistics
 import time
 
-from audiojev_inference import AudioJev, Noul
+from audiojev_inference import DEFAULT_MODEL, AudioJev, Noul
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-dir", required=True)
+    parser.add_argument("--model", "--model-dir", dest="model_dir", default=DEFAULT_MODEL)
+    parser.add_argument("--revision")
+    parser.add_argument("--local-files-only", action="store_true")
     parser.add_argument("--adapter")
     parser.add_argument("--audio", required=True)
     parser.add_argument("--device", default="cuda:0")
@@ -19,7 +21,8 @@ def main():
     args = parser.parse_args()
     if args.questions < 2 or args.repeats < 1:
         parser.error("need at least two questions and one repeat")
-    model = AudioJev(args.model_dir, adapter=args.adapter, device=args.device)
+    model = AudioJev(args.model_dir, adapter=args.adapter, device=args.device,
+                     revision=args.revision, local_files_only=args.local_files_only)
     questions = {str(i): Noul(f"Can speech be heard in this audio? Check {i}.")
                  for i in range(args.questions)}
     model.system_one(state=args.audio, questions=questions)

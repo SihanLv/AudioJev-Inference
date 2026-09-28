@@ -3,21 +3,31 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "audiojev-inference"
+name = "AudioJev-Inference"
 version = "0.1.0"
-description = "Local typed audio decisions with trained AudioJev checkpoints"
+description = "Standalone Python API and HTTP service for AudioJev audio decisions"
+readme = "README.md"
 requires-python = ">=3.10"
+keywords = ["audiojev", "audio", "inference", "qwen", "fastapi"]
 dependencies = [
   "numpy>=2,<3", "scipy>=1.15,<2", "soundfile>=0.13,<1",
   "torch>=2.8,<2.9", "transformers==4.57.6", "accelerate>=1.10,<2",
   "safetensors>=0.6,<1", "peft>=0.17,<0.18",
+  "huggingface-hub>=0.34,<1", "librosa>=0.11,<0.12", "torchvision>=0.23,<0.24",
 ]
 
 [project.optional-dependencies]
 server = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
+dev = ["pytest>=8,<10"]
+
+[project.urls]
+Model = "https://huggingface.co/shlv/AudioJev"
 
 [project.scripts]
 audiojev-serve = "audiojev_inference.server:main"
 
 [tool.setuptools.packages.find]
 include = ["audiojev_inference*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

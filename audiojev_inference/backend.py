@@ -17,6 +17,25 @@ SYSTEM_PROMPT = (
 )
 
 
+def _resolve_model_dir(model_dir, *, revision=None, local_files_only=False):
+    """Resolve an existing local directory or a versioned Hugging Face snapshot."""
+    path = Path(model_dir).expanduser()
+    if path.is_dir():
+        return path
+    if isinstance(model_dir, Path) or path.exists() or str(model_dir).startswith(("/", ".", "~")):
+        raise FileNotFoundError(f"model directory does not exist: {path}")
+    from huggingface_hub import snapshot_download
+    return Path(snapshot_download(
+        repo_id=str(model_dir), revision=revision, local_files_only=local_files_only,
+        allow_patterns=[
+            "config.json", "generation_config.json", "model*.safetensors",
+            "model.safetensors.index.json", "tokenizer*.json", "tokenizer.model",
+            "vocab.json", "merges.txt", "added_tokens.json", "special_tokens_map.json",
+            "*preprocessor_config.json", "processor_config.json", "chat_template*", "spk_dict.pt",
+        ],
+    ))
+
+
 def _waveform(state: AudioInput):
     supplied = sum(value is not None for value in (state.path, state.data, state.waveform))
     if supplied != 1:
@@ -44,7 +63,7 @@ def _waveform(state: AudioInput):
 
 class OmniBackend:
     def __init__(self, model_dir, *, adapter=None, device="cuda:0", max_prompt_tokens=4096,
-                 merge_adapter=False):
+                 merge_adapter=False, revision=None, local_files_only=False):
         import torch
         from transformers import AutoConfig, Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
 
@@ -56,9 +75,7 @@ class OmniBackend:
             raise ValueError("device must include its CUDA index, such as cuda:0")
         if not isinstance(max_prompt_tokens, int) or max_prompt_tokens <= 0:
             raise ValueError("max_prompt_tokens must be positive")
-        model_dir = Path(model_dir)
-        if not model_dir.is_dir():
-            raise FileNotFoundError(model_dir)
+        model_dir = _resolve_model_dir(model_dir, revision=revision, local_files_only=local_files_only)
         self.max_prompt_tokens = max_prompt_tokens
         torch.set_num_threads(min(torch.get_num_threads(), 4))
         torch.cuda.set_device(self.device)
@@ -124,7 +141,7 @@ class OmniBackend:
                     text = self.processor.apply_chat_template(
                         conversation, add_generation_prompt=True, tokenize=False)
                     batch = self.processor(text=[text], audio=[waveform], return_tensors="pt",
-                                           padding=True, use_audio_in_video=False)
+                                           padding=True, use_audio_in_video=False, sampling_rate=16000)
                     if batch["input_ids"].shape[1] > self.max_prompt_tokens:
                         raise ValueError("prompt exceeds max_prompt_tokens; no silent truncation")
                     frames = int(batch["feature_attention_mask"].sum(-1).max())

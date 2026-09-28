@@ -1,118 +1,123 @@
-# AudioJev inference
+# AudioJev-Inference
 
-独立可安装的本地推理包。加载 AudioJev 训练后的 Qwen2.5-Omni 3B 全参数
-checkpoint，或基座加 LoRA adapter；Python 和 HTTP 接口采用 Jev 的
-`state`、`questions`、`answers` 结构。只接收音频，不调用 TypeSafe 服务。
+AudioJev 的独立 Python 推理库与 HTTP 服务。输入音频和问题，返回候选概率、二元判断或等级评分；同一音频的多个问题共享一次音频编码。
+
+默认加载 Hugging Face 上的 **[shlv/AudioJev](https://huggingface.co/shlv/AudioJev)**（RD-SKL，λ=0.5，seed=20261001）。模型权重由 Hugging Face 管理，本项目包含服务代码、客户端示例和测试，可单独克隆、安装和部署。
 
 ## 安装
 
-在具备 CUDA 的环境中安装与训练一致的 PyTorch 和依赖：
-
-在 `inference/` 目录执行：
+需要 Python 3.10+ 和支持 BF16 的 NVIDIA CUDA GPU。以下命令均在 **AudioJev-Inference 仓库根目录**执行：
 
 ```bash
-python -m pip install -e '.[server]'
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[server]"
 ```
 
-本机已安装训练环境时可使用：
+项目使用 PyTorch 2.8、Transformers 4.57.6 和 SDPA。请使用与本机 CUDA 环境匹配的 PyTorch 构建。访问私有模型时，先登录有读取权限的 Hugging Face 账户：
 
 ```bash
-cd inference
-/data/lsh/conda_envs/audiojev/bin/python -m pip install -e . --no-deps
+export HF_ENDPOINT=https://huggingface.co
+hf auth login
 ```
 
-全参数模型目录必须包含 `config.json`、Safetensors 权重和 processor 文件。
-本机按 development loss 选出的 seed 20261001 模型为：
+服务会自动下载并缓存模型。也可以先下载到本地：
 
-```text
-/data/lsh/AudioJev/runs/full_parameter_v1/full_seed20261001/general/checkpoint-2048/model
+```bash
+hf download shlv/AudioJev --local-dir ./models/AudioJev
 ```
 
-也可将 `model_dir` 设为原始 `/data/lsh/models/Qwen2.5-Omni-3B`，并传入
-`adapter` 目录。权重不随本包分发。
+`models/` 已加入 `.gitignore`。原始 FP32 权重约 18.8 GB，加载时转换为 BF16。
 
-## Python
+## 启动服务
+
+```bash
+audiojev-serve --model shlv/AudioJev --device cuda:0
+```
+
+默认地址为 `http://127.0.0.1:8000`。模型加载完成后，可以检查状态或打开交互式 API 文档：
+
+```bash
+curl http://127.0.0.1:8000/health
+# 浏览器打开 http://127.0.0.1:8000/docs
+```
+
+从本地模型目录离线启动：
+
+```bash
+audiojev-serve --model ./models/AudioJev --local-files-only --device cuda:0
+```
+
+`--model-dir` 是 `--model` 的兼容别名。也可通过 `AUDIOJEV_MODEL` 或 `AUDIOJEV_MODEL_DIR` 指定模型，使用 `--revision` 固定 Hugging Face 提交或标签。更多设置见 [部署说明](docs/deployment.md)。
+
+## 调用 HTTP 接口
+
+服务提供 `POST /v1/systemone`，接收 base64 音频和问题。附带客户端可以直接读取音频文件发送请求：
+
+```bash
+python examples/http_client.py --audio ./example.wav --question "Which sound is audible?" --options "A dog barking" "A car horn" "Rain falling"
+```
+
+客户端仅使用 Python 标准库，不加载模型，也不需要 GPU。请求格式和响应字段见 [API 文档](docs/api.md)。
+
+## Python API
 
 ```python
-from audiojev_inference import AudioJev, Choice, Noul, Score
+from audiojev_inference import AudioJev, Choice, Noul
 
-jev = AudioJev("/path/to/trained/checkpoint/model", device="cuda:0")
-result = jev.system_one(
-    state="/path/to/audio.wav",
+model = AudioJev("shlv/AudioJev", device="cuda:0")
+result = model.system_one(
+    state="./example.wav",
     questions={
-        "intent": Choice(
-            instructions="说话者的主要请求是什么？",
-            criteria={"refund": "申请退款", "delivery": "查询配送状态", "other": "其他请求"},
+        "sound": Choice(
+            instructions="Which sound is audible?",
+            criteria={"dog": "A dog barking", "horn": "A car horn", "rain": "Rain falling"},
         ),
-        "laughter": Noul(instructions="片段中是否可以听到笑声？"),
-        "quality": Score(
-            instructions="评估人声清晰程度。",
-            criteria=["难以辨认", "部分清晰", "清晰"],
-        ),
+        "speech": Noul(instructions="Can speech be heard in this clip?"),
     },
 )
 print(result["answers"])
+print(result["usage"]["audio_encoder_calls"])  # 同一请求的多个问题共享一次音频编码
 ```
 
-`state` 也接受音频文件字节或 `AudioInput(waveform=mono_array,
-sample_rate=16000)`。音频会转换为 16 kHz 单声道。一个请求的所有问题共用
-一次解码和一次音频塔编码。问题 ID 和候选 key 仅用于结果索引；模型读取
-`instructions` 与候选描述，所以描述应包含完整语义。
+`AudioJev()` 默认使用 `shlv/AudioJev`；传入本地目录可加载已下载的权重。调用方可以传文件路径、音频字节或 `AudioInput` 波形。音频统一转换为 16 kHz 单声道。
 
-`choice` 返回所选 key、完整分布与 `confidence`；`noul` 返回真值概率；
-`score` 返回等级期望、等级分布和 legend。`confidence` 明确定义为
-`1 - H(p)/log(K)`，描述分布集中程度，**不是**正确概率，也不等同于
-TypeSafe 的内部计算。Score 目前没有人类量表监督，输出带
-`"experimental": true`；请先做任务内验证再使用。
-
-Choice/Noul 最多 36 个候选，Score 最多 10 级。只对提供的候选做 softmax，
-没有隐式 `other`；需要兜底时应显式写入 criteria。当前接口支持字符串
-描述；TypeSafe 接口中的对象/数组描述尚未实现。
-
-## HTTP
+命令行单次推理示例：
 
 ```bash
-audiojev-serve --model-dir /path/to/trained/checkpoint/model --device cuda:0
+python examples/predict.py --audio ./example.wav --question "Which sound is audible?" --options "A dog barking" "A car horn" "Rain falling"
 ```
 
-`POST /v1/systemone` 接收 JSON。可选 `model` 字段为 `audiojev-local`。
-`state.audio_base64` 是编码后音频文件
-的 Base64；服务默认只监听 `127.0.0.1`，限 20 MB 音频。示例：
+## 概率与候选顺序
 
-```json
-{
-  "state": {"audio_base64": "<base64 encoded WAV>"},
-  "questions": {
-    "intent": {
-      "type": "choice",
-      "instructions": "说话者的主要请求是什么？",
-      "criteria": {"refund": "申请退款", "delivery": "查询配送状态"}
-    },
-    "laughter": {"type": "noul", "instructions": "片段中是否可以听到笑声？"}
-  }
-}
+- `Choice` 支持 2–36 个候选，返回候选 key、完整概率分布和 `confidence`。
+- `Noul` 返回命题为真的概率。
+- `Score` 支持 2–10 个有序等级，返回期望等级与分布；该接口目前为实验性功能。
+- `confidence = 1 - H(p)/log(K)` 表示分布集中程度，不是预测正确率。
+- `Choice` 和 `Noul` 对唯一、无位置指涉的描述按 UTF-8 字节排序，并把结果映射回原始 key；重复或位置指涉描述保留输入顺序。`Score` 始终保留等级顺序。这是服务的序列化约定，与模型卡中原始候选顺序的评测设置不同。
+
+所有概率只在给定候选上归一化。需要兜底答案时，在候选列表中显式提供。接口细节见 [API 文档](docs/api.md)。
+
+## 项目结构
+
+```text
+AudioJev-Inference/
+├── audiojev_inference/   # Python API、模型加载与 HTTP 服务
+├── examples/            # 本地推理、HTTP 客户端、性能测量
+├── docs/                # API 与部署文档
+├── tests/               # 无 GPU 的单元测试
+├── pyproject.toml       # 安装依赖与 audiojev-serve 命令
+└── README.md
 ```
 
-`GET /health` 只确认模型已加载。服务使用一个 GPU worker；请求在模型
-内部串行化，保证请求级音频缓存不会串音。如需并发吞吐，可为每张 GPU
-启动一个独立进程，由外层负载均衡。
-
-## 加速与测量
-
-- 模型常驻显存，BF16 + SDPA，关闭音频输出。
-- 直接读取最终决策位置 logits，不调用逐 token `generate`，也不计算整段
-  prompt 的词表投影。
-- 单次多问题请求复用音频塔输出；文本前向仍随问题数增长。
-- 可选 `merge_adapter=True` 把 LoRA 合并到内存中的基座，需先核对合并前后
-  的决策是否符合使用要求；全参数 checkpoint 无需合并。
-
-`usage.audio_encoder_calls` 可核对实际音频塔调用次数。测量多问题收益：
+## 开发与测量
 
 ```bash
-python benchmark.py --model-dir /path/to/model --audio /path/to/audio.wav --questions 4
+python -m pip install -e ".[server,dev]"
+python -m pytest
+python examples/benchmark.py --audio ./example.wav --questions 4
 ```
 
-参考接口：[Choice](https://docs.typesafe.ai/primitives/choice)、
-[Noul](https://docs.typesafe.ai/primitives/noul)、
-[Score](https://docs.typesafe.ai/primitives/score)。本包复用请求/响应形状，
-不声称概率或性能与 Jev 相同。
+单元测试不下载权重，也不需要 GPU；性能测量需要模型和 GPU。
+
+模型的使用条件见 [AudioJev 模型卡](https://huggingface.co/shlv/AudioJev)及其 Qwen Research License。项目采用 `state`、`questions`、`answers` 的类型化接口，计算在本地完成。

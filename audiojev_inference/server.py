@@ -1,18 +1,19 @@
-"""Optional localhost HTTP service for AudioJev."""
+"""AudioJev-Inference HTTP service."""
 
 import argparse
 import base64
 import binascii
 import os
 
-from .api import AudioInput, AudioJev
+from .api import DEFAULT_MODEL, AudioInput, AudioJev
 
 
-def create_app(model_dir, *, adapter=None, device="cuda:0", merge_adapter=False,
-               max_audio_bytes=20_000_000):
+def create_app(model_dir=DEFAULT_MODEL, *, adapter=None, device="cuda:0", merge_adapter=False,
+               revision=None, local_files_only=False, max_audio_bytes=20_000_000):
     from fastapi import FastAPI, HTTPException
-    model = AudioJev(model_dir, adapter=adapter, device=device, merge_adapter=merge_adapter)
-    app = FastAPI(title="AudioJev local inference")
+    model = AudioJev(model_dir, adapter=adapter, device=device, merge_adapter=merge_adapter,
+                    revision=revision, local_files_only=local_files_only)
+    app = FastAPI(title="AudioJev-Inference", version="0.1.0")
 
     @app.get("/health")
     def health():
@@ -45,18 +46,21 @@ def create_app(model_dir, *, adapter=None, device="cuda:0", merge_adapter=False,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-dir", default=os.environ.get("AUDIOJEV_MODEL_DIR"), required=False)
+    parser.add_argument("--model", "--model-dir", dest="model_dir",
+                        default=os.environ.get("AUDIOJEV_MODEL") or os.environ.get("AUDIOJEV_MODEL_DIR") or DEFAULT_MODEL,
+                        help="Hugging Face model ID or local model directory (default: %(default)s)")
+    parser.add_argument("--revision", help="Hugging Face branch, tag, or commit SHA")
+    parser.add_argument("--local-files-only", action="store_true", help="use local files or an already cached Hub snapshot")
     parser.add_argument("--adapter", default=os.environ.get("AUDIOJEV_ADAPTER"))
     parser.add_argument("--device", default=os.environ.get("AUDIOJEV_DEVICE", "cuda:0"))
     parser.add_argument("--merge-adapter", action="store_true")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
-    if not args.model_dir:
-        parser.error("--model-dir or AUDIOJEV_MODEL_DIR is required")
     import uvicorn
     app = create_app(args.model_dir, adapter=args.adapter, device=args.device,
-                     merge_adapter=args.merge_adapter)
+                     merge_adapter=args.merge_adapter, revision=args.revision,
+                     local_files_only=args.local_files_only)
     uvicorn.run(app, host=args.host, port=args.port, workers=1)
 
 

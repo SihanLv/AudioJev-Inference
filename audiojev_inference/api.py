@@ -7,6 +7,7 @@ import re
 from typing import Mapping
 
 LABELS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+DEFAULT_MODEL = "shlv/AudioJev"
 _RELATIVE = re.compile(
     r"\b(?:all|none|both|neither|any)\s+of\s+the\s+(?:above|below)\b|"
     r"\b(?:option|choice)\s+[A-Z0-9]\b|\b(?:former|latter)\b", re.I
@@ -123,11 +124,12 @@ def _answer(kind, options, probabilities):
 class AudioJev:
     """Keep one checkpoint resident and answer multiple questions per audio clip."""
 
-    def __init__(self, model_dir, *, adapter=None, device="cuda:0", max_prompt_tokens=4096,
-                 merge_adapter=False):
+    def __init__(self, model_dir=DEFAULT_MODEL, *, adapter=None, device="cuda:0", max_prompt_tokens=4096,
+                 merge_adapter=False, revision=None, local_files_only=False):
         from .backend import OmniBackend
         self.backend = OmniBackend(model_dir, adapter=adapter, device=device,
-                                   max_prompt_tokens=max_prompt_tokens, merge_adapter=merge_adapter)
+                                   max_prompt_tokens=max_prompt_tokens, merge_adapter=merge_adapter,
+                                   revision=revision, local_files_only=local_files_only)
         self.model = "audiojev-local"
 
     def system_one(self, *, state, questions: Mapping[str, object]):
