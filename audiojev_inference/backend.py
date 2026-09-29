@@ -61,6 +61,15 @@ def _waveform(state: AudioInput):
     return samples
 
 
+def _padded_length(samples, extractor):
+    """Pad one STFT window past the audio rather than to the extractor's 300 s maximum."""
+    # Frames past the audio are dropped anyway. A full window of trailing zeros keeps
+    # the last kept frame clear of STFT edge reflection, so all kept frames are
+    # bit-identical; the cap preserves truncation of longer audio.
+    hop = extractor.hop_length
+    return min(-(-(samples + extractor.n_fft) // hop) * hop, extractor.n_samples)
+
+
 class OmniBackend:
     def __init__(self, model_dir, *, adapter=None, device="cuda:0", max_prompt_tokens=4096,
                  merge_adapter=False, revision=None, local_files_only=False):
@@ -124,6 +133,7 @@ class OmniBackend:
     def predict_many(self, state, prompts):
         torch = self.torch
         waveform = _waveform(state)
+        padded = _padded_length(len(waveform), self.processor.feature_extractor)
         results = {}
         prompt_tokens = 0
         # The wrapped audio encoder has request-scoped mutable state.
@@ -140,8 +150,11 @@ class OmniBackend:
                     ]
                     text = self.processor.apply_chat_template(
                         conversation, add_generation_prompt=True, tokenize=False)
+                    # With audio_kwargs, top-level audio options are ignored, and the
+                    # processor empties the dict: build it per call.
                     batch = self.processor(text=[text], audio=[waveform], return_tensors="pt",
-                                           padding=True, use_audio_in_video=False, sampling_rate=16000)
+                                           padding=True, use_audio_in_video=False,
+                                           audio_kwargs={"sampling_rate": 16000, "max_length": padded})
                     if batch["input_ids"].shape[1] > self.max_prompt_tokens:
                         raise ValueError("prompt exceeds max_prompt_tokens; no silent truncation")
                     frames = int(batch["feature_attention_mask"].sum(-1).max())

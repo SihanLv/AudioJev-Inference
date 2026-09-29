@@ -85,6 +85,19 @@ python examples/predict.py \
   --options "A dog barking" "A car horn" "Rain falling"
 ```
 
+## Inference speed
+
+Reference latency for one `system_one` call on an NVIDIA RTX 5880 Ada Generation GPU (48 GB) in BF16, with the model already loaded:
+
+| Audio length | 1 question | 4 questions | 16 questions |
+|---|---:|---:|---:|
+| 10 s | 60 ms | 180 ms | 700 ms |
+| 30 s | 100 ms | 300 ms | 1,100 ms |
+
+The questions in the table are four-option multiple-choice questions from MMAU test-mini. Times include audio decoding and feature extraction and are rounded medians of 5 runs. Asking 16 questions about the same clip in one request takes about 30% less time than sending 16 separate requests. Handling one request at a time, the GPU processes about 14 single-question requests per second on MMAU and MMAR clips of 2–33 s.
+
+To measure your own hardware, see [Performance measurement](docs/deployment.md#performance-measurement).
+
 ## Deployment and development
 
 See the [deployment guide](docs/deployment.md) for local models, offline operation, GPU configuration, and performance measurement.

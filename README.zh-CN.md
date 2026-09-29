@@ -85,6 +85,19 @@ python examples/predict.py \
   --options "A dog barking" "A car horn" "Rain falling"
 ```
 
+## 推理速度
+
+在一张 NVIDIA RTX 5880 Ada Generation（48 GB）上以 BF16 运行、模型已加载时，一次 `system_one` 调用的参考延迟：
+
+| 音频长度 | 1 个问题 | 4 个问题 | 16 个问题 |
+|---|---:|---:|---:|
+| 10 秒 | 60 ms | 180 ms | 700 ms |
+| 30 秒 | 100 ms | 300 ms | 1,100 ms |
+
+表中的问题均为 MMAU test-mini 中的四选一选择题。计时包含音频解码和特征提取，数值为 5 次运行的中位数（已取整）。同一段音频的 16 个问题放进一个请求，比拆成 16 个请求少用约 30% 的时间。逐个处理请求时，单卡每秒约可处理 14 个只含一个问题的请求（音频取自 MMAU 和 MMAR，时长 2–33 秒）。
+
+在自己的硬件上测量，见 [性能测量](docs/deployment.zh-CN.md#性能测量)。
+
 ## 部署与开发
 
 本地模型、离线运行、GPU 配置和性能测量见 [部署说明](docs/deployment.zh-CN.md)。
