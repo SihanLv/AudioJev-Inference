@@ -4,7 +4,13 @@
 
 A Python inference library and HTTP service for AudioJev. Provide an audio clip and natural-language questions to get candidate probabilities, yes/no judgments, or ordinal scores. A single request can ask multiple questions about the same audio.
 
-Model: [shlv/AudioJev](https://huggingface.co/shlv/AudioJev) · [API reference](docs/api.md) · [Deployment guide](docs/deployment.md)
+Paper: [AudioJev on arXiv](https://arxiv.org/abs/2610.01293)
+
+Model: [shlv/AudioJev](https://huggingface.co/shlv/AudioJev)
+
+API: [API reference](docs/api.md)
+
+Deployment: [Deployment guide](docs/deployment.md)
 
 ## Installation
 

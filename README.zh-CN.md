@@ -4,7 +4,13 @@
 
 AudioJev 的 Python 推理库与 HTTP 服务。输入一段音频和自然语言问题，即可获得候选答案的概率、真假判断或等级评分。同一音频可以一次回答多个问题。
 
-模型：[shlv/AudioJev](https://huggingface.co/shlv/AudioJev) · [API 文档](docs/api.zh-CN.md) · [部署说明](docs/deployment.zh-CN.md)
+论文：[AudioJev（arXiv）](https://arxiv.org/abs/2610.01293)
+
+模型：[shlv/AudioJev](https://huggingface.co/shlv/AudioJev)
+
+API：[API 文档](docs/api.zh-CN.md)
+
+部署：[部署说明](docs/deployment.zh-CN.md)
 
 ## 安装
 
